@@ -1,0 +1,6 @@
+Pillow
+requests
+openpyxl
+pyttsx3
+reportlab
+tkhtmlview
