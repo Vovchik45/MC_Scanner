@@ -1,4 +1,5 @@
 import os
+import re
 import configparser
 import tkinter as tk
 from tkinter import ttk
@@ -22,7 +23,7 @@ APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class StringCollectorApp:
     def __init__(self, root):
         self.root = root
-        self.version = "1.16"
+        self.version = "1.17"
         self.author = "Борисов Владимир"
         self.contacts = "@MC_1C"
         self.root.title(f"MC_Сканер - Версия {self.version}")
@@ -280,12 +281,40 @@ class StringCollectorApp:
                     result['crypto_tail'] = ai.value
                     result['crypto_ai'] = ai.ai
 
-            return result
+            if result.get('gtin') and result.get('sn') and (
+                result.get('crypto_tail') or '91' not in (gs1_string or '')
+            ):
+                return result
+            return self.simple_gs1_parse(gs1_string)
         except ImportError:
             return self.simple_gs1_parse(gs1_string)
         except Exception as e:
             print(f"Ошибка парсинга: {e}")
-            return self._empty_gs1_result()
+            return self.simple_gs1_parse(gs1_string)
+
+    def _split_tail_without_gs(self, tail):
+        """
+        Полный код без разделителя GS.
+        После серийного номера идёт 91 (4 символа) и криптохвост 92/93/94,
+        либо сразу криптохвост. Короткий код 01+21 сюда не попадает.
+        """
+        match = re.search(r'91(.{4})(92|93|94)', tail)
+        if match and match.start() > 0:
+            return {
+                'sn': tail[:match.start()],
+                'check_code': match.group(1),
+                'crypto_ai': match.group(2),
+                'crypto_tail': tail[match.end():],
+            }
+        match = re.search(r'(92|93|94)', tail)
+        if match and match.start() > 0:
+            return {
+                'sn': tail[:match.start()],
+                'check_code': None,
+                'crypto_ai': match.group(1),
+                'crypto_tail': tail[match.end():],
+            }
+        return None
 
     def simple_gs1_parse(self, gs1_string):
         """
@@ -316,7 +345,14 @@ class StringCollectorApp:
                     result['sn'] = remaining[:gs_pos]
                     working_string = remaining[gs_pos + 1:]
                 else:
-                    result['sn'] = remaining
+                    tail = self._split_tail_without_gs(remaining)
+                    if tail:
+                        result['sn'] = tail['sn']
+                        result['check_code'] = tail['check_code']
+                        result['crypto_tail'] = tail['crypto_tail']
+                        result['crypto_ai'] = tail['crypto_ai']
+                    else:
+                        result['sn'] = remaining
                     working_string = ""
 
             elif ai == '91':
